@@ -210,12 +210,11 @@ void clawFunct(){
 	//Once timer reaches a certain point before the end, signal goes up to make duty cycle go up.
 	//Stays down before signal is up, goes back down once timer hits end point. Timer is reset to 0.
 //50Hz, so 20 ms for the period.
-
 int main(void){
     DDRA = 0x00; PORTA = 0xFF;				//Set Port A to input, for button only.
 	DDRD = 0xFF; PORTD = 0x00;				//Set Port D to output, for all PWM signals to the motors.
 											//Be careful with the motors and ADC.
-
+	unsigned char button;					//Button has to be a char, otherwise this no longer works.
 	while (1){
 		button = ~PINA;						//Invert pins for Port A so button can function properly
 		if (button == 0x01) {					//When button is pressed
@@ -229,8 +228,6 @@ int main(void){
 			PORTD = 0x00;						//Disable PORTD6
 			_delay_ms(18);							//Close signal down (Down = 95%)
 		}
-		
-		
 	}
 }
 
