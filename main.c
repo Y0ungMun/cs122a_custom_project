@@ -1,6 +1,8 @@
 /* Name: Brittney Mun, NetID: bmun001, SID: 861295813
  * Custom Project
- * Milestone 1: Open and close claw
+ *
+ * [COMPLETED] Milestone 1: Open and close claw
+ * Milestone 2: Move body with a joystick
  */ 
 
 /*
@@ -10,175 +12,146 @@ to open and close. 8 MHz opens too far and doesn't close far enough.
 It also doesn't close all the way, just like real-life claw machines, haha ECKS DEE
 	*/
 #ifndef F_CPU
-#define F_CPU 4000000UL		//4 MHz clock speed. Changing this changes the range in which the claw opens. Somehow.
+#define F_CPU 8000000UL		//Changing this changes the range in which the claw opens. Somehow. Readjusted claw location in order to compensate change.
 #endif
 
 #include <avr/io.h>
 #include <util/delay.h>
-//#include "timer.c"			Not needed for now.
+#include "timer.c"
 
 //Did not need these variables for Milestone 1
-/*
-//enum pwmOpen{Init, Disable, On, Off}openState;
-//enum pwmClose{Init2, Disable2, On2, Off2}closeState;
-enum clawFSM{Open, Close}clawState;
-unsigned char button;
-unsigned char count;
-unsigned char count2;
-unsigned char pwmVal;
-unsigned char flag;		//1 for Open, 0 for close
-*/
 
-//Debugging: PORTC displays which PWM signal is being sent.
+enum lrFSM{lrNeutral, Left, Right}lrState;	//Controls claw base movement.
+//enum udFSM{udNeutral, Up, Down}udState;	//Don't need this quite yet.
+enum clawFSM{Open, Close}clawState;			//FSM that controls claw.
+unsigned char button;						//Button has to be a char, otherwise this no longer works.
+unsigned short adcVal;						//ADC value is stored in this variable
 
-//Runs without needing user input.
-//2 PWM FSMs. One is always enabled when one is disabled.
-//Open PWM signal, duty cycle = 5%
-//PORTC = 0x01 when disabled
-	//Debugging LED to verify correct PWM State machine was entered.
-/*
-void pwmOpenFunct(){
-	switch(openState){
-		case Init:
-			count = 0;
-			openState = Disable;
+
+//Debugging: PORTB outputs which state a state machine is currently in. Used on lrFunct.
+
+//Function for left and right movement with joystick
+//Claw base yeets itself waaaaaay too fast to the left/right. Need to implement an "increasing speed" function or slow down output.
+//counter perhaps? Only output every x milliseconds?
+void lrFunct(){
+	switch(lrState){
+		case lrNeutral:											//Neutral state: Do not move motors
+			if (adcVal <= 600 && adcVal >= 400)					//Left threshold: 400. Right threshold: 600.
+				lrState = lrNeutral;
+			else if (adcVal < 400)								//Turn left
+				lrState = Left;
+			else
+				lrState = Right;								//Turn right
 			break;
-		case Disable:
-			if (flag == 1){
-				openState = On;
-				break;
-			}
-			openState = Disable;
+		case Left:												//Turn claw base to the LEFT.
+			if (adcVal < 400)									//Keep turning left.
+				lrState = Left;
+			else if (adcVal <= 600 && adcVal >= 400)			//Stay still.
+				lrState = lrNeutral;
+			else
+				lrState = Right;								//Turn right.
 			break;
-		case On:
-			//Immediately stop if flag to close is on.
-			if (flag == 0){
-				openState = Disable;
-				break;
-			}
-			if (count > 1) {		//On for 1ms
-				openState = Off;
-				break;
-			}
-			openState = On;
-			break;
-		case Off:
-			//Immediately stop if flag to close is on.
-			if (flag == 0){
-				openState = Disable;
-				break;
-			}
-			if (count > 20){		//Off for 19ms
-				count = 0;
-				openState = On;
-				break;
-			}
-			openState = Off;
+		case Right:												//Turn claw base to the RIGHT.
+			if (adcVal > 600)									//Keep turning Right
+				lrState = Right;
+			else if (adcVal <= 600 && adcVal >= 400)			//Stay still.
+				lrState = lrNeutral;
+			else
+				lrState = Left;									//Turn left.
 			break;
 		default:
-			openState = Init;
+			lrState = lrNeutral;
 			break;
 	}
-	switch(openState){
-		case Init:
-			count = 0;
+	switch(lrState){
+		case lrNeutral:
+			//PORTB = 0x01;									//For debugging
+			PORTD |= 0xCF;										//Literally do nothing. Sending an empty signal was a bad idea.
+			break;												
+		case Left:
+			//PORTB = 0x02;									//Debugging only
+			PORTD |= 0x20;										//Enable PORTD5, OR-mask to ensure other ports are not affected.
+			_delay_us(1000);									//Signal enabled for 1ms.
+			PORTD &= 0xCF;										//Disable PORTD5.
+			_delay_ms(19);										//Signal disabled for 19ms.
 			break;
-		case Disable:
-			PORTC = 0x01;
-			count = 0;
-			break;
-		case On:
-			pwmVal = 0x08;		//count faster depending on clawState. x2 on On state only when opening
-			count++;
-			break;
-		case Off:
-			pwmVal = 0x00;
-			count++;
+		case Right:
+			//PORTB = 0x04;									//yawYEET
+			PORTD |= 0x20;										//Enable PORTD5, OR-mask to ensure other ports are not affected.
+			_delay_us(2000);									//Signal enabled for 2ms.
+			PORTD &= 0xCF;										//Disable PORTD5.
+			_delay_ms(18);										//Signal disabled for 18ms.
 			break;
 		default:
 			break;
 	}
 }
-*/
-//Closing PWM signal, Duty cycle = 10%
-//PORTC = 0x02 when disabled
-	//Debugging LED to check PWM state machines
 /*
-void pwmCloseFunct(){
-	switch(closeState){
-		case Init2:
-			count2 = 0;
-			closeState = Disable2;//change to Disabled by default
+void shiftUD(){
+	switch(UDState){
+		case InitUD:
+			row = 0x1E;
+			iterUD = 0;
+			UDState = NeutralUD;
 			break;
-		case Disable2:
-			//Immediately stop if flag to close is on.
-			if (flag == 0){
-				closeState = On2;
-				break;
-			}
-			closeState = Disable2;
+		case NeutralUD:
+			if (adcVal <= 600 && adcVal >= 450)					//Stay still
+				UDState = NeutralUD;
+			else if (adcVal < 450)					//Go left
+				UDState = Down;
+			else
+				UDState = Up;				//Go right
 			break;
-		case On2:
-			//Immediately stop if flag to close is on.
-			if (flag == 1){
-				closeState = Disable2;
-				break;
-			}
-			if (count2 > 2) {		//On for 2ms
-				closeState = Off2;
-				break;
-			}
-			closeState = On2;
+		case Down:
+			if (adcVal < 450)
+				UDState = Down;
+			else
+				UDState = NeutralUD;
 			break;
-		case Off2:
-			//Immediately stop if flag to close is on.
-			if (flag == 1){
-				closeState = Disable2;
-				break;
-			}
-			if (count2 > 20){		//Off for 18ms
-				count2 = 0;
-				closeState = On2;
-				break;
-			}
-			closeState = Off2;
+		case Up:
+			if (adcVal > 600)
+				UDState = Up;
+			else
+				UDState = NeutralUD;
 			break;
 		default:
-			closeState = Init2;
+			UDState = InitUD;
 			break;
-	}
-	switch(closeState){
-		case Init2:
-			count2 = 0;
+	}	
+	switch(UDState){
+		case NeutralUD:
 			break;
-		case Disable2:
-			PORTC = 0x02;
-			count2 = 0;
+		case Up:
+			if (row == upDownArr[0] && iterUD == 0)				//If at left limit
+				break;				
+			else {
+				iterUD--;
+				row = upDownArr[iterUD];
+			}
 			break;
-		case On2:
-			pwmVal = 0x08;		//count faster depending on clawState. x2 on On state only when opening
-			count2++;
-			break;
-		case Off2:
-			pwmVal = 0x00;
+		case Down:
+			if (row == upDownArr[4] && iterUD == 4)				//If at right limit
+				break;				
+			else {
+				iterUD++;
+				row = upDownArr[iterUD];
+			}
 			break;
 		default:
 			break;
 	}
-}
-*/
-//Tried to make 2 PWM state machines and 1 claw state machine, but was unable to close claw properly.
-/*
+}*/
+
 void clawFunct(){
 	switch(clawState){
-		case Close:
+		case Close:								//Close state.
 			if (button == 0x01) {
 				clawState = Open;
 				break;
 			}
 			clawState = Close;
 			break;
-		case Open:
+		case Open:								//Open state.
 			if (button == 0x01) {
 				clawState = Open;
 				break;
@@ -186,23 +159,46 @@ void clawFunct(){
 			clawState = Close;
 			break;
 		default:
-			clawState = Close;
+			clawState = Close;					//Stay closed by default.
 			break;
 	}
 	switch(clawState){
 		case Close:
-			PORTB = pwmVal;
-			flag = 0;
+			PORTD |= 0x40;						//Enable PORTD6, OR-mask to ensure other ports are unaffected.
+			_delay_us(1000);						//Close signal up (Duty cycle 5%)
+			PORTD &= 0xBF;						//Disable PORTD6
+			_delay_ms(18);							//Close signal down (Down = 95%)
 			break;
 		case Open:
-			PORTB = pwmVal;
-			flag = 1;
+			PORTD |= 0x40;						//Enable PORTD6, OR-mask to ensure other ports are unaffected.
+			_delay_us(2000);						//Open signal up (Duty cycle = 10%)
+			PORTD &= 0xBF;						//Disable PORTD6
+			_delay_ms(19);							//Open signal down (Down = 90%)
 			break;
 		default:
 			break;
 	}
 }
-*/
+
+void A2D_init() {												//From joystick lab. Initializes A2D
+      ADCSRA |= (1 << ADEN) | (1 << ADSC) | (1 << ADATE);
+	// ADEN: Enables analog-to-digital conversion
+	// ADSC: Starts analog-to-digital conversion
+	// ADATE: Enables auto-triggering, allowing for constant
+	//	    analog to digital conversions.
+}
+
+void Set_A2D_Pin(unsigned char pinNum) {						//From joystick lab. Allows you to change which A2D pin you use.
+	ADMUX = (pinNum <= 0x07) ? pinNum : ADMUX;
+	// Allow channel to stabilize
+	static unsigned char i = 0;
+	for ( i=0; i<15; i++ ) { asm("nop"); } 
+}
+
+//Up/Down on JOYSTICK controls Forward/Back. NOT ACTUALLY UP AND DOWN!!
+//To control Up/Down movement: BUTTON PRESS ONLY.
+//Upon button press: open claw, lower claw (U/D), close claw, raise claw (U/D)
+	//NOT part of milestone 2.
 
 //Ensure that Port D is input
 //PWM on Port D, pins 3, 4, 6, 7
@@ -211,23 +207,23 @@ void clawFunct(){
 	//Stays down before signal is up, goes back down once timer hits end point. Timer is reset to 0.
 //50Hz, so 20 ms for the period.
 int main(void){
-    DDRA = 0x00; PORTA = 0xFF;				//Set Port A to input, for button only.
+	//DDRB = 0xFF; PORTB = 0x00;		//Uncomment when you need to debug.
+    DDRC = 0x00; PORTC = 0xFF;				//Set Port C to input, for button only. Was originally Port A, but Port A is needed for ADC input
 	DDRD = 0xFF; PORTD = 0x00;				//Set Port D to output, for all PWM signals to the motors.
-											//Be careful with the motors and ADC.
-	unsigned char button;					//Button has to be a char, otherwise this no longer works.
+												//Be careful with the motors and A2D.
+	A2D_init();								//Initialize A2D so joystick can work.
+	TimerSet(50);							//Timer function provided by Jeff. Set to 50ms so everything doesn't yeet all over the place.
+	TimerOn();								//Enable timer.
 	while (1){
-		button = ~PINA;						//Invert pins for Port A so button can function properly
-		if (button == 0x01) {					//When button is pressed
-			PORTD = 0x40;						//Enable PORTD6
-			_delay_us(2000);						//Open signal up (Duty cycle = 10%)
-			PORTD = 0x00;						//Disable PORTD6
-			_delay_ms(19);							//Open signal down (Down = 90%)
-		} else {								//When button is not pressed
-			PORTD = 0x40;						//Enable PORTD6
-			_delay_us(1000);						//Close signal up (Duty cycle 5%)
-			PORTD = 0x00;						//Disable PORTD6
-			_delay_ms(18);							//Close signal down (Down = 95%)
-		}
+		Set_A2D_Pin(0);						//PORTA pin for Left/Right movement
+		_delay_ms(1);
+		adcVal = ADC;						//Define adcVal
+		lrFunct();
+		
+		button = ~PINC;						//Invert pins for Port A so button can function properly
+		clawFunct();
+		while(!TimerFlag);
+			TimerFlag = 0;
 	}
 }
 
